@@ -1,0 +1,525 @@
+<template>
+    <div ref="threeContainer" class="three-container"></div>
+</template>
+
+<script setup>
+import * as THREE from 'three';
+import { geoMercator } from 'd3-geo'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import Stats from 'three/examples/jsm/libs/stats.module.js';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import { onMounted, ref } from 'vue';
+
+const threeContainer = ref();
+
+const WIDTH = window.innerWidth;
+const HEIGHT = window.innerHeight;
+
+let particleArr = []
+let WaveMeshArr = []//所有波动光圈集合
+let uniforms2 = {
+    u_time: { value: 0.0 }
+};
+const textureLoader = new THREE.TextureLoader(); //纹理贴图加载器
+const map = new THREE.Group();
+const clock = new THREE.Clock();
+const stats = new Stats();
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const scene = new THREE.Scene();
+const axesHelper = new THREE.AxesHelper(5);
+const camera = new THREE.PerspectiveCamera(45, WIDTH / HEIGHT, 0.1, 1050);//参数：视野角度，宽高比，近裁剪面，远裁剪面
+const orbitcontrols = new OrbitControls(camera, renderer.domElement);
+let labelRenderer, rotatingPointMesh, rotatingApertureMesh, mesh3;
+// 创建性能监控对象
+const initStats = () => {
+    // stats.showPanel(0);//显示左上角的帧数
+    document.body.appendChild(stats.dom);
+    stats.domElement.style.position = 'absolute';
+    stats.domElement.style.left = '0px';
+    stats.domElement.style.top = '0px';
+    // return stats;
+}
+const initRenderer = () => {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(WIDTH, HEIGHT);
+    renderer.setClearColor(0x000000, 1.0);
+    // renderer.shadowMap.enabled = true;
+    // renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    threeContainer.value.appendChild(renderer.domElement);
+
+    //初始化CSS2DRenderer
+    labelRenderer = new CSS2DRenderer();
+    labelRenderer.setSize(window.innerWidth, window.innerHeight);
+    labelRenderer.domElement.style.position = 'absolute';
+    labelRenderer.domElement.style.top = '0px';
+    labelRenderer.domElement.style.pointerEvents = 'none';
+    threeContainer.value.appendChild(labelRenderer.domElement);
+}
+
+const initScene = () => {
+    // 显示纵坐标轴
+    // scene.add(axesHelper);
+}
+const initCamera = () => {
+    // 确定相机位置 并将相机指向场景中心
+    camera.position.x = 3.4;
+    camera.position.y = 118;
+    camera.position.z = 92;
+    camera.lookAt(scene.position);
+}
+
+const initControls = () => {
+    // 如果使用animate方法时，将此函数删除
+    //controls.addEventListener( 'change', render );
+    // 使动画循环使用时阻尼或自转 意思是否有惯性
+    orbitcontrols.enableDamping = true;
+    //动态阻尼系数 就是鼠标拖拽旋转灵敏度
+    //controls.dampingFactor = 0.25;
+    //是否可以缩放
+    orbitcontrols.enableZoom = true;
+    //是否自动旋转
+    // orbitcontrols.autoRotate = true;
+    // orbitcontrols.autoRotateSpeed = 0.5;
+    //设置相机距离原点的最远距离
+    orbitcontrols.minDistance = 1;
+    //设置相机距离原点的最远距离
+    orbitcontrols.maxDistance = 200;
+    // orbitcontrols.minPolarAngle = Math.PI / 180*10;
+    orbitcontrols.maxPolarAngle = Math.PI / 180 * 75;//不然看到底部，超过90就看到底部了
+    //是否开启右键拖拽
+    orbitcontrols.enablePan = true;
+    // orbitcontrols.addEventListener('change', printPosition);
+}
+
+const creatCube = () => {
+    const geometry = new THREE.BoxGeometry();
+    const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    const cube = new THREE.Mesh(geometry, material);
+    //设置模型位置
+    cube.position.set(0, 0, 0);
+    // scene.add(cube);
+    const animate = () => {
+        requestAnimationFrame(animate);
+        // cube.rotation.x += 0.01;
+        // cube.rotation.y += 0.01;
+        renderer.render(scene, camera);
+        orbitcontrols.update();
+        stats.update();
+    };
+
+    animate();
+}
+
+const initGeoJson = () => {
+    fetch('./src/assets/json/china/chengdu.json')
+        .then(res => res.json())
+        .then(data => {
+            let jsonData = data
+            console.log(jsonData.features)
+            initMap(jsonData)
+            initMapMesh(jsonData)
+        })
+}
+const initMap = (geoJson) => {
+    let matLine = new THREE.LineBasicMaterial({
+        color: 0xffffff,
+        linewidth: 0.0013,
+        // vertexColors: true,
+        // dashed: false,
+        // alphaToCoverage: true,
+    })
+    let matLine2 = new THREE.LineBasicMaterial({
+        color: "#01bdc2",
+        linewidth: 0.0025,
+        // vertexColors: true,
+        // dashed: false,
+        // alphaToCoverage: true,
+    });
+    // d3-geo转化坐标
+    const projection = geoMercator()
+        .center([103.931804, 30.652329])
+        .scale(2000)
+        .translate([0, 0]);
+
+    geoJson.features.forEach(item => {
+        const province = new THREE.Object3D()
+        const coordinates = item.geometry.coordinates;
+        const properties = item.properties;
+        //创建光柱TODO
+        initLightPoint(properties, projection);
+        coordinates.forEach((multiPolygon) => {
+            multiPolygon.forEach((polygon) => {
+                const positions = [];
+                const colors = [];
+                const color = new THREE.Color();
+                const linGeometry = new THREE.BufferGeometry();
+                for (let i = 0; i < polygon.length; i += 1) {
+                    const [x, y] = projection(polygon[i]);
+                    positions.push(new THREE.Vector3(x, -y, 4.01));
+                    // color.setHSL(1, 1, 1);
+                    // colors.push(color.r, color.g, color.b);
+                }
+                //Line2
+                linGeometry.setFromPoints(positions);
+                // linGeometry.setColors(colors);
+                const line = new THREE.Line(linGeometry, matLine);
+                const line2 = new THREE.Line(linGeometry, matLine2);
+                line.computeLineDistances();
+                line.rotateX(-Math.PI / 2);
+                line2.rotateX(-Math.PI / 2);
+                line.position.set(0, 0.1, -3);
+                line2.position.set(0, -3.5, -3);
+                line2.computeLineDistances();
+                line.scale.set(1, 1, 1);
+                province.add(line);
+                province.add(line2);
+            });
+        });
+        map.add(province);
+    })
+    scene.add(map);
+}
+
+const initMapMesh = (geoJson) => {
+    let textureMap = textureLoader.load("./src/assets/imgs/jsonimg/gz-map.jpeg");
+    let texturefxMap = textureLoader.load("./srcassets/imgs/jsonimg/gz-map-fx.jpeg");
+    textureMap.wrapS = THREE.RepeatWrapping; //纹理水平方向的平铺方式
+    textureMap.wrapT = THREE.RepeatWrapping; //纹理垂直方向的平铺方式
+    textureMap.flipY = texturefxMap.flipY = false;
+    textureMap.rotation = texturefxMap.rotation =
+        THREE.MathUtils.degToRad(45);
+    const scale = 0.01;
+    textureMap.repeat.set(scale, scale);
+    texturefxMap.repeat.set(scale, scale);
+    textureMap.offset.set(0.5, 0.5);
+    texturefxMap.offset.set(0.5, 0.5);
+
+    const material = new THREE.MeshPhongMaterial({
+        map: textureMap,
+        normalMap: texturefxMap,
+        // normalScale: new THREE.Vector2(12.2, 2.2),
+        color: "#7bc6c2",
+        combine: THREE.MultiplyOperation,
+        transparent: true,
+        opacity: 1,
+    });
+    const material1 = new THREE.MeshLambertMaterial({
+        color: 0x123024,
+        transparent: true,
+        opacity: 0.9,
+    });
+    // d3-geo转化坐标
+    const projection = geoMercator()
+        .center([103.931804, 30.652329])
+        .scale(2000)
+        .translate([0, 0]);
+    // 遍历省份构建模型
+    geoJson.features.forEach(item => {
+        // 新建一个省份容器：用来存放省份对应的模型和轮廓线
+        const meshArrs = new THREE.Object3D();
+        const coordinates = item.geometry.coordinates;
+        const properties = item.properties;
+        coordinates.forEach(MultiPolygon => {
+            MultiPolygon.forEach(polygon => {
+                const shape = new THREE.Shape();
+                let v3ps = [];
+                for (let i = 0; i < polygon.length; i++) {
+                    const [x, y] = projection(polygon[i]);
+                    if (i === 0) {
+                        shape.moveTo(x, -y);
+                    }
+                    shape.lineTo(x, -y);
+                    // 保存坐标
+                    v3ps.push(new THREE.Vector3(x, -y, 4.02));
+                }
+                const extrudeSettings = {
+                    depth: 1, //该属性指定图形可以拉伸多高，默认值是100
+                    bevelEnabled: false, //是否给这个形状加斜面，默认加斜面。
+                };
+                //拉升成地图
+                const geometry = new THREE.ExtrudeGeometry(
+                    shape,
+                    extrudeSettings
+                );
+                const mesh = new THREE.Mesh(geometry, [material, material1]);
+                mesh.rotateX(-Math.PI / 2);
+                mesh.position.set(0, 1.5, -3);
+                meshArrs.add(mesh);
+                let curve = new THREE.CatmullRomCurve3(v3ps, true);//是否闭合
+                // let flyLine = initFlyLine(
+                //     curve,
+                //     {
+                //         speed: 0.4,
+                //         color: new THREE.Color("#ffff00"),
+                //         number: 3, //同时跑动的流光数量
+                //         length: 0.2, //流光线条长度
+                //         size: 4, //粗细
+                //     },
+                //     10000
+                // );
+            });
+        });
+        map.add(meshArrs);
+    });
+    scene.add(map);
+}
+
+const initLightPoint = (properties, projection) => {
+    // console.log(properties)
+    // 创建光柱
+    let heightScaleFactor = 8 + random(1, 5) / 5;
+    let lightCenter = properties.centroid || properties.center;
+    let areaName = properties.name;
+    // let lightCenter = properties.centroid;
+    // projection用来把经纬度转换成坐标
+    const [x, y] = projection(lightCenter);
+    let light = createLightPillar(x, y, heightScaleFactor);
+    light.position.z -= 3;
+    // light.position.y = 13.31;
+    map.add(light);
+    //这里创建坐标
+    createTextPoint(x, y, areaName);
+}
+
+const createTextPoint = (x, z, areaName) => {
+    let tag = document.createElement("div");
+    tag.innerHTML = name;
+    // tag.className = className
+    tag.style.pointerEvents = "none";
+    // tag.style.visibility = 'hidden'
+    tag.style.position = "absolute";
+    let label = new CSS2DObject(tag);
+    // console.log(areaName, "区域名字");
+    label.element.innerHTML = areaName;
+    label.element.style.visibility = "visible";
+    label.position.set(x, 5.01, z);
+    label.position.z -= 3;
+    scene.add(label);
+}
+const initLights = () => {
+    //点光源和自然光
+    scene.add(new THREE.AmbientLight(0x7af4ff, 1.2));
+    let directionalLight1 = new THREE.DirectionalLight(0x7af4ff, 1); //037af1
+    directionalLight1.position.set(-100, 10, -100);
+    let directionalLight2 = new THREE.DirectionalLight(0x7af4ff, 1);
+    directionalLight2.position.set(100, 10, 100);
+    scene.add(directionalLight1);
+    scene.add(directionalLight2);
+}
+
+const initFloor = () => {
+    const geometry = new THREE.PlaneGeometry(400, 400);
+    let texture = textureLoader.load("./src/assets/imgs/jsonimg/地板背景.png");
+    const material = new THREE.MeshPhongMaterial({
+        color: 0xffffff,
+        map: texture,
+        // emissive:0xffffff,
+        // emissiveMap:Texture,
+        transparent: true,
+        opacity: 1,
+        depthTest: true,
+        // roughness:1,
+        // metalness:0,
+        depthWrite: false,
+        // side: THREE.DoubleSide
+    });
+    let plane = new THREE.Mesh(geometry, material);
+    plane.rotateX(-Math.PI / 2);
+    scene.add(plane);
+
+    let rotatingApertureTexture = textureLoader.load(
+        "./src/assets/imgs/jsonimg/rotatingAperture.png"
+    );
+    let rotatingApertureerial = new THREE.MeshBasicMaterial({
+        map: rotatingApertureTexture,
+        transparent: true,
+        opacity: 1,
+        depthTest: true,
+        depthWrite: false,
+    });
+    let rotatingApertureGeometry = new THREE.PlaneGeometry(100, 100);
+    rotatingApertureMesh = new THREE.Mesh(
+        rotatingApertureGeometry,
+        rotatingApertureerial
+    );
+    rotatingApertureMesh.rotateX(-Math.PI / 2);
+    rotatingApertureMesh.position.y = 0.02;
+    rotatingApertureMesh.scale.set(1.2, 1.2, 1.2);
+    scene.add(rotatingApertureMesh);
+
+    let rotatingPointTexture = textureLoader.load(
+        "./src/assets/imgs/jsonimg/rotating-point2.png"
+    );
+    let material2 = new THREE.MeshBasicMaterial({
+        map: rotatingPointTexture,
+        transparent: true,
+        opacity: 1,
+        depthTest: true,
+        depthWrite: false,
+    });
+
+    rotatingPointMesh = new THREE.Mesh(rotatingApertureGeometry, material2);
+    rotatingPointMesh.rotateX(-Math.PI / 2);
+    rotatingPointMesh.position.y = 0.04;
+    rotatingPointMesh.scale.set(1, 1, 1);
+    scene.add(rotatingPointMesh);
+
+    let circlePoint = textureLoader.load("./src/assets/imgs/jsonimg/circle-point.png");
+    let material3 = new THREE.MeshPhongMaterial({
+        color: 0x00ffff,
+        map: circlePoint,
+        transparent: true,
+        opacity: 1,
+        depthWrite: false,
+        // depthTest: false,
+    });
+    let plane3 = new THREE.PlaneGeometry(120, 120);
+    mesh3 = new THREE.Mesh(plane3, material3);
+    mesh3.rotateX(-Math.PI / 2);
+    mesh3.position.y = 0.06;
+    scene.add(mesh3);
+}
+const random = (min, max) => {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+const createLightPillar = (x, z, heightScaleFactor = 1) => {
+    let group = new THREE.Group();
+    // 柱体高度
+    const height = heightScaleFactor;
+    // 柱体的geo,6.19=柱体图片高度/宽度的倍数
+    const geometry = new THREE.PlaneGeometry(height / 6.219, height);
+    // 柱体旋转90度，垂直于Y轴
+    // geometry.rotateX(Math.PI / 2)
+    // 柱体的z轴移动高度一半对齐中心点
+    geometry.translate(0, height / 2, 0);
+    // 柱子材质
+    const material = new THREE.MeshBasicMaterial({
+        map: textureLoader.load("./src/assets/imgs/jsonimg/光柱.png"),
+        color: 0x00ffff,
+        transparent: true,
+        depthWrite: false,
+        // depthTest:false,
+        side: THREE.DoubleSide,
+    });
+    // 光柱01
+    let light01 = new THREE.Mesh(geometry, material);
+    light01.renderOrder = 2;
+    light01.name = "createLightPillar01";
+    // 光柱02：复制光柱01
+    let light02 = light01.clone();
+    light02.renderOrder = 2;
+    light02.name = "createLightPillar02";
+    // 光柱02，旋转90°，跟 光柱01交叉
+    light02.rotateY(Math.PI / 2);
+
+    // 创建底部标点
+    const bottomMesh = createPointMesh(1.5);
+
+    // 创建光圈
+    const lightHalo = createLightHalo(1.5);
+    WaveMeshArr.push(lightHalo);
+    // 将光柱和标点添加到组里
+    group.add(bottomMesh, lightHalo, light01, light02);
+    // 设置组对象的姿态
+    // group = setMeshQuaternion(group, R, lon, lat)
+    group.position.set(x, 4.01, z);
+    return group;
+}
+const createPointMesh = (size) => {
+    // 标记点：几何体，材质，
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    const material = new THREE.MeshBasicMaterial({
+        map: textureLoader.load("./src/assets/imgs/jsonimg/标注.png"),
+        color: 0x00ffff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        depthWrite: false, //禁止写入深度缓冲区数据
+    });
+    let mesh = new THREE.Mesh(geometry, material);
+    mesh.renderOrder = 2;
+    mesh.rotation.x = Math.PI / 2;
+    mesh.name = "createPointMesh";
+    // 缩放
+    const scale = 1 * size;
+    mesh.scale.set(scale, scale, scale);
+    return mesh;
+}
+const createLightHalo = (size) => {
+    // 标记点：几何体，材质，
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    const material = new THREE.MeshBasicMaterial({
+        map: textureLoader.load("./src/assets/imgs/jsonimg/标注光圈.png"),
+        color: 0x00ffff,
+        side: THREE.DoubleSide,
+        opacity: 0,
+        transparent: true,
+        depthWrite: false, //禁止写入深度缓冲区数据
+    });
+    let mesh = new THREE.Mesh(geometry, material);
+    mesh.renderOrder = 2;
+    mesh.name = "createLightHalo";
+    mesh.rotation.x = Math.PI / 2;
+    // 缩放
+    const scale = 1.5 * size;
+    mesh.size = scale; //自顶一个属性，表示mesh静态大小
+    mesh.scale.set(scale, scale, scale);
+    return mesh;
+}
+
+const animate = () => {
+    stats.update();
+    if (rotatingApertureMesh) {
+        rotatingApertureMesh.rotation.z += 0.0005;
+    }
+    if (rotatingPointMesh) {
+        rotatingPointMesh.rotation.z -= 0.0005;
+    }
+    if (mesh3) {
+        mesh3.rotation.z += 0.0009;
+    }
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
+}
+const onWindowResize = () => {
+    camera.aspect = WIDTH / HEIGHT;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    labelRenderer.setSize(window.innerWidth, window.innerHeight);
+}
+const init = () => {
+    initStats();
+    initRenderer();
+    initScene();
+    initLights();
+    initCamera();
+    initControls();
+    creatCube();
+    initGeoJson();
+    // initPoints();
+    initFloor();
+    // initParticle();
+    // initHelp();
+}
+
+
+
+onMounted(() => {
+    init()
+    animate()
+    window.addEventListener('resize', onWindowResize, false);
+});
+
+</script>
+
+<style scoped>
+.three-container {
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+}
+</style>
