@@ -126,22 +126,22 @@ const initGeoJson = () => {
 }
 const initMap = (geoJson) => {
     let matLine = new THREE.LineBasicMaterial({
-        color: 0xffffff,
+        color: new THREE.Color().setHSL(1, 1, 1),
         linewidth: 0.0013,
         // vertexColors: true,
         // dashed: false,
-        // alphaToCoverage: true,
+        alphaToCoverage: true,
     })
     let matLine2 = new THREE.LineBasicMaterial({
         color: "#01bdc2",
         linewidth: 0.0025,
         // vertexColors: true,
         // dashed: false,
-        // alphaToCoverage: true,
+        alphaToCoverage: true,
     });
     // d3-geo转化坐标
     const projection = geoMercator()
-        .center([103.931804, 30.652329])
+        .center([103.98, 30.65])
         .scale(2000)
         .translate([0, 0]);
 
@@ -201,20 +201,19 @@ const initMapMesh = (geoJson) => {
     const material = new THREE.MeshPhongMaterial({
         map: textureMap,
         normalMap: texturefxMap,
-        // normalScale: new THREE.Vector2(12.2, 2.2),
+        normalMapType: THREE.TangentSpaceNormalMap,
+        normalScale: new THREE.Vector2(12.2, 2.2),
         color: "#7bc6c2",
         combine: THREE.MultiplyOperation,
-        transparent: true,
-        opacity: 1,
+        transparent: false,
     });
     const material1 = new THREE.MeshLambertMaterial({
         color: 0x123024,
         transparent: true,
-        opacity: 0.9,
     });
     // d3-geo转化坐标
     const projection = geoMercator()
-        .center([103.931804, 30.652329])
+        .center([103.98, 30.65])
         .scale(2000)
         .translate([0, 0]);
     // 遍历省份构建模型
@@ -237,7 +236,7 @@ const initMapMesh = (geoJson) => {
                     v3ps.push(new THREE.Vector3(x, -y, 4.02));
                 }
                 const extrudeSettings = {
-                    depth: 1, //该属性指定图形可以拉伸多高，默认值是100
+                    depth: 2, //该属性指定图形可以拉伸多高，默认值是100
                     bevelEnabled: false, //是否给这个形状加斜面，默认加斜面。
                 };
                 //拉升成地图
@@ -287,19 +286,30 @@ const initLightPoint = (properties, projection) => {
 
 const createTextPoint = (x, z, areaName) => {
     let tag = document.createElement("div");
-    tag.innerHTML = name;
+    tag.innerHTML = areaName;
+    //设置背景图片
+    tag.style.background = `url(${new URL('../assets/imgs/jsonimg/tag.png', import.meta.url).href})`;
+    tag.style.width = "65px";
+    tag.style.textAlign = "center";
+    //更改字体
+    tag.style.fontFamily = "微软雅黑";
+    // tag.style.background = "red"
+    tag.style.backgroundSize = "100% 100%";
     // tag.className = className
     tag.style.pointerEvents = "none";
     // tag.style.visibility = 'hidden'
     tag.style.position = "absolute";
     let label = new CSS2DObject(tag);
     // console.log(areaName, "区域名字");
-    label.element.innerHTML = areaName;
+    // label.element.innerHTML = areaName;
     label.element.style.visibility = "visible";
-    label.position.set(x, 5.01, z);
-    label.position.z -= 3;
+    // label.element.style.border = "1px solid #fff";
+    label.element.id = "label-tag";
+
+    label.position.set(x - 1, 10, z - 3);
     scene.add(label);
 }
+
 const initLights = () => {
     //点光源和自然光
     scene.add(new THREE.AmbientLight(0x7af4ff, 1.2));
@@ -481,16 +491,26 @@ const animate = () => {
     if (mesh3) {
         mesh3.rotation.z += 0.0009;
     }
+    if (WaveMeshArr.length) {
+        WaveMeshArr.forEach(function (mesh) {
+            mesh._s += 0.007;
+            mesh.scale.set(mesh.size * mesh._s, mesh.size * mesh._s, mesh.size * mesh._s);
+            if (mesh._s <= 1.5) {
+                //mesh._s=1，透明度=0 mesh._s=1.5，透明度=1
+                mesh.material.opacity = (mesh._s - 1) * 2;
+            } else if (mesh._s > 1.5 && mesh._s <= 2) {
+                //mesh._s=1.5，透明度=1 mesh._s=2，透明度=0
+                mesh.material.opacity = 1 - (mesh._s - 1.5) * 2;
+            } else {
+                mesh._s = 1.0;
+            }
+        });
+    }
     requestAnimationFrame(animate);
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
 }
-const onWindowResize = () => {
-    camera.aspect = WIDTH / HEIGHT;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    labelRenderer.setSize(window.innerWidth, window.innerHeight);
-}
+
 const init = () => {
     initStats();
     initRenderer();
@@ -506,12 +526,39 @@ const init = () => {
     // initHelp();
 }
 
+const onWindowResize = () => {
+    //   console.log("画面变化了");
+    // 更新摄像头
+    camera.aspect = window.innerWidth / window.innerHeight;
+    //   更新摄像机的投影矩阵
+    camera.updateProjectionMatrix();
 
+    //   更新渲染器
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    labelRenderer.setSize(window.innerWidth, window.innerHeight);
+    //   设置渲染器的像素比
+    renderer.setPixelRatio(window.devicePixelRatio);
+}
+window.addEventListener('resize', onWindowResize, true);
+
+window.addEventListener("dblclick", () => {
+    const fullScreenElement = document.fullscreenElement;
+    if (!fullScreenElement) {
+        //   双击控制屏幕进入全屏，退出全屏
+        // 让画布对象全屏
+        renderer.domElement.requestFullscreen();
+        // labelRenderer.domElement.requestFullscreen();
+    } else {
+        //   退出全屏，使用document对象
+        document.exitFullscreen();
+    }
+    //   console.log(fullScreenElement);
+});
 
 onMounted(() => {
     init()
     animate()
-    window.addEventListener('resize', onWindowResize, false);
+
 });
 
 </script>
