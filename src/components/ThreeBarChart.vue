@@ -11,6 +11,8 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { onMounted, ref } from 'vue';
+
+const threeContainer = ref(null)
 let scene, camera, renderer;
 
 function init() {
@@ -23,8 +25,8 @@ function init() {
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearColor(0x000000, 0); // 设置渲染器的背景为透明
-    document.body.appendChild(renderer.domElement);
+    // renderer.setClearColor(0x000000, 0); // 设置渲染器的背景为透明
+    threeContainer.value.appendChild(renderer.domElement);
 
     // 添加光源
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);

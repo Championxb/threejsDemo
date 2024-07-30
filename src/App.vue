@@ -13,11 +13,12 @@
 
 <script setup>
 import HelloWorld from './components/HelloWorld.vue'
-// import ThreeJS from './components/ThreeJs.vue'
+// import ThreeJS from './components/ThreeJsMap.vue'
 // import ThreeJS from './components/threeTest.vue'
 // import ThreeJS from './components/ThreeBarChart.vue'
 // import ThreeJS from './components/ThreeCuboidBarChart.vue';
-import ThreeJS from './components/ThreeCurveChart.vue';
+// import ThreeJS from './components/ThreeCurveChart.vue';
+import ThreeJS from './components/ThreeRingChart.vue'
 
 
 </script>
